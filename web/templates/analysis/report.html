@@ -190,5 +190,71 @@ $(function() {
         {% include "analysis/admin/index.html" %}
     </div>
     {% endif %}
+
+{% if analysis.static_analysis.boxjs %}
+<div class="panel panel-default">
+    <div class="panel-heading">
+        <h3 class="panel-title">Box.js Analysis</h3>
+    </div>
+    <div class="panel-body">
+        <p><strong>Summary:</strong> URLs: {{ analysis.static_analysis.boxjs.ioc_summary.total_urls }},
+        IOCs: {{ analysis.static_analysis.boxjs.ioc_summary.total_iocs }},
+        Snippets: {{ analysis.static_analysis.boxjs.ioc_summary.total_snippets }}</p>
+
+        <h4>URLs</h4>
+        <ul>
+        {% for url in analysis.static_analysis.boxjs.urls %}
+            <li>{{ url }}</li>
+        {% endfor %}
+        </ul>
+
+        <h4>IOCs</h4>
+        <table class="table table-striped">
+            <thead>
+                <tr><th>Type</th><th>Value</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+            {% for ioc in analysis.static_analysis.boxjs.ioc %}
+                <tr>
+                    <td>{{ ioc.type }}</td>
+                    <td>{{ ioc.value }}</td>
+                    <td>{{ ioc.description }}</td>
+                </tr>
+            {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+
+{% if analysis.static_analysis.powershell_analysis %}
+<div class="panel panel-default">
+    <div class="panel-heading">
+        <h3 class="panel-title">PowerShell Deobfuscation</h3>
+    </div>
+    <div class="panel-body">
+        <h4>Deobfuscated Script</h4>
+        <pre>{{ analysis.static_analysis.powershell_analysis.deobfuscated_script }}</pre>
+
+        <h4>Extracted IOCs</h4>
+        {% if analysis.static_analysis.powershell_analysis.iocs %}
+            <ul>
+            {% for category, items in analysis.static_analysis.powershell_analysis.iocs.items %}
+                {% if items %}
+                    <li><strong>{{ category|capfirst }}:</strong><br>
+                        {% for item in items %}
+                            {{ item }}<br>
+                        {% endfor %}
+                    </li>
+                {% endif %}
+            {% endfor %}
+            </ul>
+        {% else %}
+            <p>No IOCs found.</p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+
 </div>
 {% endblock %}

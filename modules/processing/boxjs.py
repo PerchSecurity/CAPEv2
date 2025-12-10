@@ -1,128 +1,93 @@
+# CAPEv2 Processing Module for Box.js (Docker-based)
+import os
+import subprocess
+import json
 import logging
-import time
-from urllib.parse import urljoin
-
-import requests
 
 from lib.cuckoo.common.abstracts import Processing
-from lib.cuckoo.common.exceptions import CuckooOperationalError
 
 log = logging.getLogger(__name__)
 
-
-class BoxJS(Processing):
-    def _request_text(self, url, **kwargs):
-        """Wrapper around doing a request and parsing its text output."""
-        try:
-            r = requests.get(url, timeout=self.timeout, **kwargs)
-            return r.text if r.status_code == 200 else ""
-        except (requests.ConnectionError, ValueError) as e:
-            raise CuckooOperationalError(f"Unable to GET results: {e.message}") from e
-
-    def request_json(self, url, **kwargs):
-        """Wrapper around doing a request and parsing its JSON output."""
-        try:
-            log.debug(str(url))
-            r = requests.get(url, timeout=self.timeout, **kwargs)
-            return r.json() if r.status_code == 200 and r.text else {}
-        except (requests.ConnectionError, ValueError) as e:
-            raise CuckooOperationalError(f"Unable to GET results: {e.message}") from e
-
-    def _post_text(self, url, **kwargs):
-        """Wrapper around doing a post and parsing its text output."""
-        try:
-            flags = {"flags": kwargs.get("flags", "")}
-            # log.debug(kwargs)
-            # log.debug("FLAGS %s", flags)
-            files = {"sample": kwargs.get("sample")}
-            r = requests.post(url, timeout=self.timeout, data=flags, files=files)
-            return r.json()["analysisID"] if r.status_code == 200 else None
-        except (requests.ConnectionError, ValueError) as e:
-            raise CuckooOperationalError(f"Unable to POST to the API server: {e.message}") from e
-
-    def _post_json(self, url, **kwargs):
-        """Wrapper around doing a post and parsing its JSON output."""
-        try:
-            r = requests.post(url, timeout=self.timeout, **kwargs)
-            return r.json() if r.status_code == 200 else {}
-        except (requests.ConnectionError, ValueError) as e:
-            raise CuckooOperationalError(f"Unable to POST to the API server: {e.message}") from e
+class BoxJSProcessing(Processing):
+    """Run Box.js inside Docker for static JavaScript analysis."""
 
     def run(self):
         self.key = "boxjs"
+        sample_path = self.file_path
+        analysis_path = self.analysis_path
 
-        """ Fall off if we don't deal with files """
-        if self.results.get("info", {}).get("category") not in ("file", "static") and (
-            self.results.get("info", {}).get("package", "") in ("js", "jse", "jsevbe", "js_antivm")
-            or self.results.get("target", {}).get("file", {}).get("name", "").endswith(".js", ".jse")
-        ):
-            log.debug("Box-js supports only file scanning")
-            return {}
+        # Only process JavaScript files
+        #if not sample_path.endswith(".js"):
+        #    log.info("Box.js skipped: not a JavaScript file.")
+        #    return {}
 
-        self.url = self.options.get("url")
-        self.timeout = int(self.options.get("timeout", 60))
-        self.ioc = self.options.get("IOC")
+        # Create output directory for Box.js results
+        boxjs_output = os.path.join(analysis_path, "boxjs_results")
+        os.makedirs(boxjs_output, exist_ok=True)
 
-        # Post file for scanning.
-        postUrl = urljoin(self.url, "/sample")
-        analysis_id = self._post_text(postUrl, sample=open(self.file_path, "rb"))  # returns a UUID
-        base_url = f"{self.url}/sample/{analysis_id}"
+        # Configurable options
+        docker_image = self.options.get("docker_image", "capacitorset/box-js")
+        timeout = int(self.options.get("timeout", 300))  # default 5 min
+        extra_flags = self.options.get("extra_flags", "--download")
 
-        flags = ""
-
-        # Wait for the analysis to be completed.
-        done = False
-        while not done:
-            time.sleep(2)
-            result = self.request_json(base_url)
-            code = result.get("code")
-            retry = False
-
-            # Read the status code, and retry with different flags if necessary
-            if code is None:
-                continue
-            elif code == 0:  # Success
-                done = True
-            elif code == 1:  # Generic error
-                # We don't know how to handle this, so continue
-                done = True
-                # Todo: show result["stderr"] to the user?
-            elif code == 2:  # Timeout
-                # Todo: choose whether to use longer timeout
-                done = True
-            elif code == 3:  # Rewrite error
-                flags += "--no-rewrite "
-                retry = True
-            elif code == 4:  # Syntax error
-                # Todo: implement JSE decoding if necessary
-                done = True
-            elif code == 5:  # Retry with --no-shell-error
-                flags += "--no-shell-error "
-                retry = True
-            else:
-                done = True
-                log.info("BOXJS: %s", result)
-                return {}
-
-            if retry:
-                postUrl = urljoin(self.url, "/sample")
-                analysis_id = self._post_text(postUrl, sample=open(self.file_path, "rb"), flags=flags)  # returns a UUID
-                base_url = f"{self.url}/sample/{analysis_id}"
-
-        # Fetch the results.
-        urls_url = f"{base_url}/urls"
-        resources_url = f"{base_url}/resources"
-        iocs_ioc = f"{base_url}/IOC"
-        results = {
-            "urls": self.request_json(urls_url),
-            "resources": self.request_json(resources_url),
-            "IOC": self.request_json(iocs_ioc),
-        }
-
-        # Delete the results.
         try:
-            requests.delete(base_url, timeout=self.timeout)
-        except (requests.ConnectionError, ValueError) as e:
-            raise CuckooOperationalError(f"Unable to send a DELETE request: {e.message}") from e
+            cmd = [
+                "docker", "run", "--rm",
+                "-v", f"{sample_path}:/samples/sample.js:ro",
+                "-v", f"{boxjs_output}:/output",
+                docker_image,
+                "box-js", "/samples/sample.js", "--output-dir=/output", extra_flags
+            ]
+            log.info(f"Running Box.js in Docker: {' '.join(cmd)}")
 
-        return results
+            subprocess.run(cmd, check=True, timeout=timeout)
+
+            # Parse Box.js output files
+            results_dir = os.path.join(boxjs_output, "sample.js.results")
+            results = {
+                "urls": [],
+                "ioc": [],
+                "snippets": [],
+                "ioc_summary": {}
+            }
+
+            log.info(f"Building BoxJS Results: {results}")
+
+            urls_file = os.path.join(results_dir, "urls.json")
+            if os.path.exists(urls_file):
+                with open(urls_file) as f:
+                    results["urls"] = json.load(f)
+            log.info(f"Building BoxJS Results: {results}")
+
+            ioc_file = os.path.join(results_dir, "IOC.json")
+            if os.path.exists(ioc_file):
+                with open(ioc_file) as f:
+                    results["ioc"] = json.load(f)
+            log.info(f"Building BoxJS Results: {results}")
+
+            snippets_file = os.path.join(results_dir, "snippets.json")
+            if os.path.exists(snippets_file):
+                with open(snippets_file) as f:
+                    results["snippets"] = json.load(f)
+            log.info(f"Building BoxJS Results: {results}")
+
+
+            # Build summary
+            results["ioc_summary"] = {
+                "total_urls": len(results["urls"]),
+                "total_iocs": len(results["ioc"]),
+                "total_snippets": len(results["snippets"])
+            }
+            log.info(f"Building BoxJS Results: {results}")
+
+            return {"boxjs": results}
+
+        except subprocess.TimeoutExpired:
+            log.error(f"Box.js analysis timed out after {timeout} seconds.")
+        except subprocess.CalledProcessError as e:
+            log.error(f"Box.js execution failed: {e}")
+        except Exception as e:
+            log.exception(f"Unexpected error running Box.js: {e}")
+
+        return {}
+
