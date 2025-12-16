@@ -17,7 +17,7 @@ class OpenCTIReporting(Report):
         except Exception:
             return None
     
-    def add_malware(self, malware_name, artifact_id, analysis_id):
+    def add_malware(self, client, malware_name, artifact_id, analysis_id):
         log.info(f"Finding and adding malware and relationships: {malware_name}")
         mal = client.malware.create(name=malware_name)
         malware_id = mal["id"]
@@ -92,14 +92,14 @@ class OpenCTIReporting(Report):
             log.info(f"Found detections")
             for malware in results['detections']:
                 malware_name = malware['family']
-                self.add_malware(malware_name, artifact_id, analysis_id)
+                self.add_malware(client, malware_name, artifact_id, analysis_id)
 
         if "clamav" in results['target']['file']:
             log.info(f"Found clamav")
             for malware in results['target']['file']['clamav']:
                 pattern="(?<=\\.)(\\w+)(?=\\-)"
                 malware_name = re.findall(pattern, malware)[0]
-                self.add_malware(malware_name, artifact_id, analysis_id)
+                self.add_malware(client, malware_name, artifact_id, analysis_id)
 
         for signature in results['signatures']:
             abstract = signature['description']
