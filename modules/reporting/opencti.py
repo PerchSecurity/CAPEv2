@@ -35,6 +35,10 @@ class OpenCTIReporting(Report):
             relationship_type="related-to"
         )
 
+    def add_note(self, client, abstract, content, analysis_id):
+        sig_note = client.note.create(abstract=abstract, content=content)
+        note_id=sig_note['id']
+        note_rel = client.note.add_stix_object_or_stix_relationship(id=note_id,stixObjectOrStixRelationshipId=analysis_id)
 
     def run(self, results):
         log.info("Begin processing data for OpenCTI")
@@ -101,12 +105,17 @@ class OpenCTIReporting(Report):
                 malware_name = re.findall(pattern, malware)[0]
                 self.add_malware(client, malware_name, artifact_id, analysis_id)
 
-        for signature in results['signatures']:
-            abstract = signature['description']
-            content = str(signature['data'][0])
-            sig_note = client.note.create(abstract=abstract, content=content)
-            note_id=sig_note['id']
-            note_rel = client.note.add_stix_object_or_stix_relationship(id=note_id,stixObjectOrStixRelationshipId=analysis_id)
+        if 'signatures' in results:
+            for signature in results['signatures']:
+                abstract = signature['description']
+                content = str(signature['data'][0])
+                self.add_note(client, abstract, content, analysis_id)
+
+        if 'yara' in results['target']['file']:
+            for detection in results['target']['file']['yara']:
+                abstract = detection['name']
+                content = detection['meta']['description']
+                self.add_note(client, abstract, content, analysis_id)
 
         # Collect observables from BoxJS and PowerShell
         observables = []
