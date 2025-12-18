@@ -1,5 +1,53 @@
 ## CAPE: Malware Configuration And Payload Extraction - [Documentation](https://capev2.readthedocs.io/en/latest/#)
 
+### Customizations
+This fork of cape includes the following custom modules:  
+- modules/processing/boxjs.py - updated boxjs module that uses docker instead of a dedicated box
+- modules/reporting/boxjs.py - reporting module for the above
+- modules/processing/powershell_analysis.py - simple multi-pass PS deobfuscation and IOC extractor
+- modules/reporting/powershell_analysis.py - reporting module for the above
+- modules/reporting/opencti.py - Creates a Malware Analysis entity in OpenCTI, adds IOCs and relationships, and adds notes on findings
+    
+#### boxjs config
+conf/processing.conf
+```
+[boxjs]
+enabled = yes
+docker_image = boxjs-custom
+timeout = 300
+extra_flags = --download --no-kill
+```
+conf/reporting.conf
+```
+[boxjs]
+enabled = yes
+```
+
+#### powershell_analysis config
+conf/processing.conf
+```
+[powershell_analysis]
+enabled = yes
+powdershell_path = /home/cape/PowderShell/PowderShell.Console/bin/Release/net8.0/linux-x64/PowderShell.Console.dll
+powerdecode_path = /home/cape/PowerDecode/powerdecode.py
+```
+conf/reporting.conf
+```
+[powershell_analysis]
+enabled = yes
+```
+#### opencti config
+```
+[opencti]
+enabled = yes
+api_url = CHANGEME
+api_token = CHANGEME
+relationship_type_observables = related-to
+relationship_type_artifact = related-to
+relationship_type_malware = related-to
+```
+
+
 ### CAPE is a malware sandbox.
 A sandbox is used to execute malicious files in an isolated environment
 whilst instrumenting their dynamic behaviour and collecting forensic artefacts.
