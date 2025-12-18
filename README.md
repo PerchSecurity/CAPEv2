@@ -37,6 +37,7 @@ conf/reporting.conf
 enabled = yes
 ```
 #### opencti config
+conf/reporting.conf
 ```
 [opencti]
 enabled = yes
